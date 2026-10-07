@@ -18,6 +18,14 @@ export type ModuleMeta = {
   actions: string[]
   actionTargets: Record<string, string>
   metrics: string[]
+  // 线性流转链：登记了就必须顺着走，不许跳级；不登记则维持原来的自由流转。
+  flow?: string[]
+}
+
+// 状态看板的一列：一个状态 + 该状态下的台账行（顺序与明细台账一致）。
+export type BoardColumn = {
+  status: string
+  rows: EntryRow[]
 }
 
 export type PageResult = {

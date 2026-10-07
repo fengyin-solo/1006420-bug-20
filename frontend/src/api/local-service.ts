@@ -1,6 +1,6 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
-import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+import type { ActionResult, BoardColumn, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
@@ -28,6 +28,12 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
+// 模块的终态：登记了线性流转链的取链尾，否则取状态列表最后一位。
+function terminalStatus(meta: ModuleMeta): string {
+  const chain = meta.flow ?? meta.statuses
+  return chain[chain.length - 1]
+}
+
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
   const target = meta.actionTargets[action]
@@ -43,17 +49,52 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
-  const lastStatus = meta.statuses[meta.statuses.length - 1]
+  if (meta.flow) {
+    const targetIndex = meta.flow.indexOf(target)
+    const predecessor = targetIndex > 0 ? meta.flow[targetIndex - 1] : undefined
+    if (!predecessor || current !== predecessor) {
+      return {
+        ok: false,
+        message: `${meta.entity}状态只能顺着走（${meta.flow.join(' → ')}），不能从「${current}」直接「${action}」`,
+      }
+    }
+  }
   const updated: EntryRow = {
     ...rows[index],
     status: target,
-    pending: target !== lastStatus,
+    pending: target !== terminalStatus(meta),
     abnormal: NEGATIVE_ACTIONS.some((verb) => action.startsWith(verb)),
   }
   const next = [...rows]
   next[index] = updated
   saveRows(key, next)
   return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
+}
+
+export function createEntry(key: string, fields: Record<string, string>): ActionResult {
+  const meta = moduleMeta(key)
+  const codeField = meta.fields[0]
+  const code = (fields[codeField] ?? '').trim()
+  if (!code) {
+    return { ok: false, message: `${codeField}不能为空` }
+  }
+  const rows = listRows(key)
+  if (rows.some((row) => String(row[codeField] ?? '').trim() === code)) {
+    return { ok: false, message: `${codeField}「${code}」已经登记过了，同一个${codeField}不许登记两遍` }
+  }
+  const initial = meta.flow ? meta.flow[0] : meta.statuses[0]
+  const row: EntryRow = {
+    id: rows.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1,
+    status: initial,
+    pending: initial !== terminalStatus(meta),
+    abnormal: false,
+  }
+  for (const field of meta.fields) {
+    row[field] = (fields[field] ?? '').trim()
+  }
+  row[codeField] = code
+  saveRows(key, [...rows, row])
+  return { ok: true, message: `${meta.entity}「${code}」已登记，当前状态「${initial}」` }
 }
 
 export function resetModule(key: string): PageResult {
@@ -102,4 +143,42 @@ export function loadOverview(): OverviewResult {
     { label: '异常量', value: modules.reduce((sum, item) => sum + item.abnormal, 0) },
   ]
   return { cards, modules }
+}
+
+// —— 垃圾池区统一口径 ——
+// 列表页、运营概览、值班交接的待倒料清单都从下面这几个函数取数，同一个根：
+// 顺序只认池区编号升序，重进页面顺序不变；已投料（已倒过料）的池区按当时
+// 登记的取值保留，不参与待倒料口径的重算，也不会再进待倒料清单。
+const PIT_KEY = 'pit'
+const PIT_CODE_FIELD = '池区编号'
+// 与 modules.ts 里「安排倒料」的目标状态保持一致。
+const PIT_TURNOVER_STATUS = '需倒料'
+
+function comparePitRows(a: EntryRow, b: EntryRow): number {
+  const byCode = String(a[PIT_CODE_FIELD] ?? '').localeCompare(
+    String(b[PIT_CODE_FIELD] ?? ''),
+    'zh-Hans-CN',
+    { numeric: true },
+  )
+  return byCode !== 0 ? byCode : Number(a.id) - Number(b.id)
+}
+
+// 池区台账：按池区编号升序，是明细表、看板与待倒料清单共同的顺序来源。
+export function listPitLedger(): EntryRow[] {
+  return [...listRows(PIT_KEY)].sort(comparePitRows)
+}
+
+// 状态看板：按模块状态列表的顺序分列，每列内部沿用台账顺序，逐条对得上。
+export function pitStatusBoard(): BoardColumn[] {
+  const meta = moduleMeta(PIT_KEY)
+  const ledger = listPitLedger()
+  return meta.statuses.map((status) => ({
+    status,
+    rows: ledger.filter((row) => String(row.status) === status),
+  }))
+}
+
+// 待倒料清单：只认「需倒料」状态，值班交接与运营概览同步用这一份。
+export function listPendingTurnoverPits(): EntryRow[] {
+  return listPitLedger().filter((row) => String(row.status) === PIT_TURNOVER_STATUS)
 }

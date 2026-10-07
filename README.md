@@ -68,4 +68,9 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
+- 垃圾池区是统一口径：列表台账、状态看板、运营概览与值班交接的待倒料清单都从
+  `local-service.ts` 里的 `listPitLedger` / `pitStatusBoard` / `listPendingTurnoverPits` 取数，
+  顺序只按池区编号排；池区状态沿 `modules.ts` 里的 `flow`（待投料 → 发酵中 → 需倒料 → 已投料）
+  顺着走，不许跳级；同一个池区编号不许登记两遍；已投料（已倒过料）的池区按当时登记的取值保留，
+  不再进待倒料清单。
 - 想回到初始数据：清掉浏览器里 `waste-to-energy-plant:entries` 这一项，或调用 `resetModule(模块)`。

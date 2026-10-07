@@ -24,6 +24,28 @@
       </span>
     </p>
 
+    <!-- 待倒料清单随垃圾池区状态同步：进入「需倒料」即列入，确认投料后自动移出 -->
+    <section class="turnover-section">
+      <h3 class="section-title">垃圾池待倒料清单</h3>
+      <p class="page-desc">与垃圾池管理看板同一份台账，按池区编号排序，交接时照单核对即可。</p>
+      <table class="data-table">
+        <thead>
+          <tr><th>池区编号</th><th>发酵天数</th><th>渗滤液液位</th><th>倒料日期</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="pit in turnoverPits" :key="String(pit.id)">
+            <td>{{ pit['池区编号'] }}</td>
+            <td>{{ pit['发酵天数'] || '—' }}</td>
+            <td>{{ pit['渗滤液液位'] || '—' }}</td>
+            <td>{{ pit['倒料日期'] || '—' }}</td>
+          </tr>
+          <tr v-if="!turnoverPits.length">
+            <td colspan="4" class="empty-state">当前没有待倒料的池区</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -76,6 +98,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   downloadEntries,
   listEntries,
+  listPendingTurnoverPits,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
@@ -92,6 +115,8 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+// 待倒料清单与垃圾池管理共用同一口径，随池区状态同步刷新。
+const turnoverPits = ref<EntryRow[]>([])
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -128,6 +153,7 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    turnoverPits.value = listPendingTurnoverPits()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '值班交接班列表读取失败'
   }
