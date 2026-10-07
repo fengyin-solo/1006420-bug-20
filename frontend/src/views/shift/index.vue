@@ -18,6 +18,38 @@
       </article>
     </div>
 
+    <h3 class="section-title">待倒料交接清单</h3>
+    <p class="section-hint">由垃圾池台账「需倒料」状态自动同步，顺序与垃圾池看板逐条一致；发酵天数、液位取投料当时的冻结值。</p>
+    <table class="data-table handover-table">
+      <thead>
+        <tr>
+          <th>序号</th>
+          <th>池区编号</th>
+          <th>发酵天数</th>
+          <th>渗滤液液位</th>
+          <th>倒料日期</th>
+          <th>抓斗操作人</th>
+          <th>池区状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="(item, index) in pendingDump" :key="String(item.row.id)">
+          <td>{{ index + 1 }}</td>
+          <td>{{ item.池区编号 }}</td>
+          <td>{{ item.发酵天数 }}</td>
+          <td>{{ item.渗滤液液位 }}</td>
+          <td>{{ item.row['倒料日期'] || '—' }}</td>
+          <td>{{ item.row['抓斗操作人'] ?? '—' }}</td>
+          <td>需倒料</td>
+        </tr>
+        <tr v-if="!pendingDump.length">
+          <td colspan="7" class="empty-state">当前没有需倒料的池区，垃圾池里安排倒料后会同步到这里</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="section-title">交接班记录</h3>
+
     <p class="status-legend">
       <span v-for="item in statusSummary" :key="item.status" class="legend-item">
         {{ item.status }}：{{ item.count }}
@@ -80,6 +112,7 @@ import {
   runAction as applyAction,
 } from '@/api/local-service'
 import type { EntryRow } from '@/data/types'
+import { pendingDumpList, type PitCard } from '@/domain/pit-ledger'
 
 const meta = moduleMeta('shift')
 const columns = ["交接编号", "值班班组", "班次", "交班人员", "接班人员", "交接事项", "交接时间", "交接状态"]
@@ -92,6 +125,8 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+// 待倒料交接清单：直接读垃圾池台账，三处共用同一口径，本页不再自行排序。
+const pendingDump = ref<PitCard[]>([])
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -128,6 +163,7 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    pendingDump.value = pendingDumpList()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '值班交接班列表读取失败'
   }
@@ -135,3 +171,18 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.section-title {
+  margin: 16px 0 6px;
+  font-size: 15px;
+}
+.section-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.handover-table {
+  margin-bottom: 8px;
+}
+</style>

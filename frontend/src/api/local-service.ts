@@ -43,6 +43,16 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
+  // 状态只能顺着状态链往后走相邻一步，不许跳级、也不许回退到更早的状态。
+  const currentRank = meta.statuses.indexOf(current)
+  const targetRank = meta.statuses.indexOf(target)
+  if (currentRank !== -1 && targetRank !== -1 && targetRank !== currentRank + 1) {
+    const stepName = targetRank < currentRank ? '回退到更早状态' : '跳级'
+    return {
+      ok: false,
+      message: `${meta.entity}现在是「${current}」，只能走到「${meta.statuses[currentRank + 1]}」，不能${stepName}到「${target}」`,
+    }
+  }
   const lastStatus = meta.statuses[meta.statuses.length - 1]
   const updated: EntryRow = {
     ...rows[index],
